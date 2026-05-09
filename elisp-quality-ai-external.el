@@ -163,10 +163,15 @@ from actionable project defects."
 (defun elisp-quality-ai-external--library-available-p (spec)
   "Return non-nil when an Emacs package for SPEC is available."
   (and elisp-quality-ai-external-use-emacs-packages
-       (seq-some
-        (lambda (library)
-          (locate-library library))
-        (elisp-quality-ai-external--libraries spec))))
+       (or
+        (seq-some
+         (lambda (library)
+           (locate-library library))
+         (elisp-quality-ai-external--libraries spec))
+        (seq-some
+         (lambda (entry)
+           (fboundp (car entry)))
+         (elisp-quality-ai-external--get :functions spec)))))
 
 (defun elisp-quality-ai-external--available-p (spec)
   "Return non-nil when SPEC can be run."

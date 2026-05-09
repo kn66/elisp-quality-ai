@@ -187,6 +187,8 @@ When INCLUDE-DEFINITIONS is non-nil, include the full definition inventory."
                        (cons 'output "-")
                        (cons 'limit nil)
                        (cons 'fast nil)
+                       (cons 'load-paths nil)
+                       (cons 'load-files nil)
                        (cons 'include-definitions nil)
                        (cons 'fail-on nil)))
         (rest (cdr args)))
@@ -216,6 +218,14 @@ When INCLUDE-DEFINITIONS is non-nil, include the full definition inventory."
            (setcdr (assoc 'fast options) t))
           ("--full"
            (setcdr (assoc 'fast options) nil))
+          ("--load-path"
+           (let ((value (elisp-quality-ai--cli-pop-value arg rest)))
+             (push (car value) (cdr (assoc 'load-paths options)))
+             (setq rest (cdr value))))
+          ("--load"
+           (let ((value (elisp-quality-ai--cli-pop-value arg rest)))
+             (push (car value) (cdr (assoc 'load-files options)))
+             (setq rest (cdr value))))
           ("--include-definitions"
            (setcdr (assoc 'include-definitions options) t))
           ("--fail-on"
@@ -224,6 +234,17 @@ When INCLUDE-DEFINITIONS is non-nil, include the full definition inventory."
              (setq rest (cdr value))))
           (_ (error "Unknown option: %s" arg)))))
     options))
+
+(defun elisp-quality-ai--cli-apply-load-options (load-paths load-files)
+  "Apply CLI LOAD-PATHS and LOAD-FILES before analysis runs."
+  (let ((directories
+         (mapcar #'expand-file-name (nreverse (copy-sequence load-paths)))))
+    (dolist (directory directories)
+      (add-to-list 'load-path directory t))
+    (setq elisp-quality-ai-byte-compile-load-path
+          (append directories elisp-quality-ai-byte-compile-load-path)))
+  (dolist (file (nreverse (copy-sequence load-files)))
+    (load (expand-file-name file) nil t t)))
 
 (defun elisp-quality-ai--write-output (content output)
   "Write CONTENT to OUTPUT, or standard output when OUTPUT is nil or \"-\"."
@@ -266,6 +287,8 @@ Return the intended process exit code."
          (limit (cdr (assoc 'limit options)))
          (fail-on (cdr (assoc 'fail-on options)))
          (include-definitions (cdr (assoc 'include-definitions options)))
+         (load-paths (cdr (assoc 'load-paths options)))
+         (load-files (cdr (assoc 'load-files options)))
          (elisp-quality-ai-disabled-collectors
           (if (cdr (assoc 'fast options))
               (append elisp-quality-ai-fast-disabled-collectors
@@ -273,6 +296,7 @@ Return the intended process exit code."
             elisp-quality-ai-disabled-collectors))
          content
          report)
+    (elisp-quality-ai--cli-apply-load-options load-paths load-files)
     (pcase command
       ("report"
        (setq report (elisp-quality-ai-analyze-directory root))

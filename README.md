@@ -65,6 +65,17 @@ Use `--output -` or omit `--output` to write to standard output.  Use `--fast`
 to skip slower or environment-sensitive collectors such as byte compilation and
 optional external tools.  Use `--fail-on error` or `--fail-on warning` when a CI
 job should exit non-zero for findings at that severity or worse.
+Use `--load-path PATH` to add package or support directories before analysis,
+and `--load FILE` to load setup files or package entry files.  Both options can
+be repeated:
+
+```sh
+bin/elisp-quality-ai report \
+  --load-path ~/.emacs.d/straight/build/package-lint \
+  --load-path ~/.emacs.d/straight/build/relint \
+  --root .
+```
+
 By default, `report` output is optimized for AI context and omits successful
 definition inventories.  It includes summaries, diagnostics, tasks, collector
 metadata, and only files with diagnostics.  Add `--include-definitions` when you
@@ -129,6 +140,13 @@ before loading `elisp-quality-ai` in batch sessions:
 (package-initialize)
 (require 'elisp-quality-ai)
 ```
+
+The bundled `bin/elisp-quality-ai` wrapper initializes `package.el` for
+packages installed with `M-x package-install`.  It does not automatically
+bootstrap package managers such as straight.el or elpaca.  For those setups,
+pass the generated package directories with `--load-path`, or load a small setup
+file with `--load`.  This keeps the default batch run reproducible while still
+allowing non-`package.el` installations to provide optional collectors.
 
 The optional external collectors are complementary rather than interchangeable:
 

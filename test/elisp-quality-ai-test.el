@@ -735,6 +735,16 @@ BODY can use the variables `directory' and `file'."
                         (elisp-quality-ai-test--get "available"
                                                     collector)))))))))
 
+(ert-deftest elisp-quality-ai-external-library-available-detects-loaded-api ()
+  (let ((spec '(:name "relint"
+                :category "regexp"
+                :libraries ("elisp-quality-ai-missing-relint")
+                :functions ((elisp-quality-ai-test-loaded-relint-file . file)))))
+    (cl-letf (((symbol-function 'elisp-quality-ai-test-loaded-relint-file)
+               (lambda (_file) nil)))
+      (let ((elisp-quality-ai-external-use-emacs-packages t))
+        (should (elisp-quality-ai-external--library-available-p spec))))))
+
 (ert-deftest elisp-quality-ai-package-lint-runs-only-on-entry-files ()
   (let* ((directory (make-temp-file "elisp-quality-ai-" t))
          (package-directory (expand-file-name "sample" directory))
@@ -1012,6 +1022,43 @@ BODY can use the variables `directory' and `file'."
         (should (= 1 (length tasks)))
         (should (equal "task-001" (elisp-quality-ai-test--get "id" task)))
         (should (elisp-quality-ai-test--get "stable_id" task))))))
+
+(ert-deftest elisp-quality-ai-cli-options-apply-load-path-and-load ()
+  (let* ((directory (make-temp-file "elisp-quality-ai-" t))
+         (support-directory (expand-file-name "support" directory))
+         (load-file (expand-file-name "loaded.el" directory))
+         (original-load-path load-path)
+         (original-byte-compile-load-path
+          elisp-quality-ai-byte-compile-load-path))
+    (unwind-protect
+        (progn
+          (make-directory support-directory)
+          (with-temp-file load-file
+            (insert "(setq elisp-quality-ai-test-cli-loaded t)\n"))
+          (when (boundp 'elisp-quality-ai-test-cli-loaded)
+            (makunbound 'elisp-quality-ai-test-cli-loaded))
+          (let* ((options
+                  (elisp-quality-ai--cli-options
+                   (list "report"
+                         "--load-path" support-directory
+                         "--load" load-file)))
+                 (load-paths (cdr (assoc 'load-paths options)))
+                 (load-files (cdr (assoc 'load-files options))))
+            (should (equal (list support-directory) load-paths))
+            (should (equal (list load-file) load-files))
+            (let ((elisp-quality-ai-byte-compile-load-path nil))
+              (elisp-quality-ai--cli-apply-load-options load-paths load-files)
+              (should (member support-directory load-path))
+              (should (equal (list support-directory)
+                             elisp-quality-ai-byte-compile-load-path))
+              (should (bound-and-true-p elisp-quality-ai-test-cli-loaded)))))
+      (setq load-path original-load-path)
+      (setq elisp-quality-ai-byte-compile-load-path
+            original-byte-compile-load-path)
+      (when (boundp 'elisp-quality-ai-test-cli-loaded)
+        (makunbound 'elisp-quality-ai-test-cli-loaded))
+      (when (file-directory-p directory)
+        (delete-directory directory t)))))
 
 (ert-deftest elisp-quality-ai-cli-report-omits-definitions-by-default ()
   (elisp-quality-ai-test-with-temp-elisp
