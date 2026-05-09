@@ -130,6 +130,24 @@ before loading `elisp-quality-ai` in batch sessions:
 (require 'elisp-quality-ai)
 ```
 
+The optional external collectors are complementary rather than interchangeable:
+
+- `package-lint` checks package structure and distribution metadata, such as
+  headers, dependencies, commentary sections, autoload conventions, and MELPA
+  packaging expectations.
+- `relint` checks regular expressions embedded in Emacs Lisp code and reports
+  obsolete, suspicious, or mechanically improvable regexp patterns.
+- `cognitive-complexity` reports maintainability signals for definitions whose
+  branching and nesting make them harder to understand or modify.
+- `Elsa` performs deeper static analysis around symbol resolution, values, and
+  type-like flow.  Its findings are closer to semantic program issues than
+  package metadata or style checks.
+
+Some findings can overlap, but each collector is treated as a separate signal.
+`elisp-quality-ai` normalizes their output into one report while preserving the
+collector source so duplicated or related diagnostics can still be interpreted
+in context.
+
 The `cognitive-complexity` collector emits a complexity diagnostic when the
 score is greater than `elisp-quality-ai-cognitive-complexity-threshold`.
 The `package-lint` collector runs only on likely package entry files, avoiding
