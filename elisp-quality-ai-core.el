@@ -20,6 +20,9 @@
 (require 'elisp-quality-ai-collector)
 (require 'elisp-quality-ai-task)
 
+(defvar elisp-quality-ai-core--collecting-directory nil
+  "Non-nil while collecting a directory report.")
+
 (defcustom elisp-quality-ai-definition-length-threshold 80
   "Line-count threshold for definition size diagnostics."
   :type 'integer
@@ -285,6 +288,8 @@ parsed or applied safely."
 
 (defun elisp-quality-ai-core-analyze-file (file)
   "Return an AI-oriented report object for FILE."
+  (unless elisp-quality-ai-core--collecting-directory
+    (elisp-quality-ai-collector-clear-failures))
   (let* ((file (expand-file-name file))
          (definition-data (elisp-quality-ai-core--read-definition-data file))
          (definitions (cdr (assoc "definitions" definition-data)))
@@ -305,9 +310,12 @@ parsed or applied safely."
 
 (defun elisp-quality-ai-core-analyze-directory (directory)
   "Return an AI-oriented report object for DIRECTORY."
+  (elisp-quality-ai-collector-clear-failures)
   (let* ((root (file-name-as-directory (expand-file-name directory)))
          (files (elisp-quality-ai-core-elisp-files root))
-         (file-reports (mapcar #'elisp-quality-ai-core-analyze-file files))
+         (file-reports (let ((elisp-quality-ai-core--collecting-directory t)
+                             (elisp-quality-ai-collector--preserve-failures t))
+                         (mapcar #'elisp-quality-ai-core-analyze-file files)))
          (definitions
           (apply #'+ (mapcar (lambda (report)
                                (length (cdr (assoc "definitions" report))))

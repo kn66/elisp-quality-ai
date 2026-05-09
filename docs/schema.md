@@ -96,11 +96,15 @@ Required fields:
 | `available` | boolean | Whether the collector's dependencies are available. |
 | `requires` | array of strings | Dependency names or tools used by the collector. |
 | `enabled` | boolean | Whether the collector is enabled for execution. |
+| `status` | string | One of `ok`, `disabled`, `unavailable`, or `failed`. |
 | `description` | string | Human-readable collector summary. |
 
-Collector functions return diagnostics.  Failures during collector execution are
-normalized as diagnostics with category `collector` instead of crashing the
-report.
+Collector functions return diagnostics.  Failures during collector execution do
+not become source diagnostics or AI tasks.  Instead, the collector metadata uses
+`status: "failed"` and includes `failure_count`, `last_error`, and `failures`.
+Each failure entry includes the collector `name`, source `file`, and failure
+`message`.  This keeps tool failures separate from actionable project findings
+without crashing report generation.
 
 The built-in `checkdoc` collector emits diagnostics with source `checkdoc`,
 category `style`, severity `warning`, and the normalized source file and line.

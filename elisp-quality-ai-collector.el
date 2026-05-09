@@ -14,6 +14,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'seq)
 (require 'subr-x)
 
 (defgroup elisp-quality-ai nil
@@ -37,6 +38,12 @@
 
 (defvar elisp-quality-ai-collector-registry nil
   "Registered `elisp-quality-ai' collectors.")
+
+(defvar elisp-quality-ai-collector--failure-records nil
+  "Collector failure records for the current report run.")
+
+(defvar elisp-quality-ai-collector--preserve-failures nil
+  "Non-nil when collector failures are accumulated by an outer report run.")
 
 (defun elisp-quality-ai-collector--plist-member-p (plist property)
   "Return non-nil when PLIST has PROPERTY."
@@ -154,15 +161,46 @@ PROPERTIES may include:
   "Return COLLECTORS or the global collector registry."
   (or collectors elisp-quality-ai-collector-registry))
 
+(defun elisp-quality-ai-collector-clear-failures ()
+  "Clear collector failure records for a new report run."
+  (setq elisp-quality-ai-collector--failure-records nil))
+
+(defun elisp-quality-ai-collector--failure-records-for (collector)
+  "Return failure records for COLLECTOR."
+  (let ((name (elisp-quality-ai-collector-name collector)))
+    (seq-filter
+     (lambda (record)
+       (equal name (cdr (assoc "name" record))))
+     elisp-quality-ai-collector--failure-records)))
+
+(defun elisp-quality-ai-collector--status (collector failures)
+  "Return a status string for COLLECTOR with FAILURES."
+  (cond
+   (failures "failed")
+   ((not (elisp-quality-ai-collector--available-p collector)) "unavailable")
+   ((not (elisp-quality-ai-collector--enabled-p collector)) "disabled")
+   (t "ok")))
+
 (defun elisp-quality-ai-collector--metadata (collector)
   "Return JSON-friendly metadata for COLLECTOR."
-  `(("name" . ,(elisp-quality-ai-collector-name collector))
-    ("available" . ,(elisp-quality-ai-collector--json-bool
-                     (elisp-quality-ai-collector--available-p collector)))
-    ("requires" . ,(vconcat (elisp-quality-ai-collector-requires collector)))
-    ("enabled" . ,(elisp-quality-ai-collector--json-bool
-                   (elisp-quality-ai-collector--enabled-p collector)))
-    ("description" . ,(elisp-quality-ai-collector-description collector))))
+  (let* ((failures (elisp-quality-ai-collector--failure-records-for collector))
+         (last-failure (car failures))
+         (metadata
+          `(("name" . ,(elisp-quality-ai-collector-name collector))
+            ("available" . ,(elisp-quality-ai-collector--json-bool
+                             (elisp-quality-ai-collector--available-p collector)))
+            ("requires" . ,(vconcat (elisp-quality-ai-collector-requires collector)))
+            ("enabled" . ,(elisp-quality-ai-collector--json-bool
+                           (elisp-quality-ai-collector--enabled-p collector)))
+            ("status" . ,(elisp-quality-ai-collector--status collector failures))
+            ("description" . ,(elisp-quality-ai-collector-description collector)))))
+    (if failures
+        (append
+         metadata
+         `(("failure_count" . ,(length failures))
+           ("last_error" . ,(cdr (assoc "message" last-failure)))
+           ("failures" . ,(vconcat (nreverse (copy-sequence failures))))))
+      metadata)))
 
 (defun elisp-quality-ai-collector-metadata (&optional collectors)
   "Return JSON-friendly metadata for registered COLLECTORS."
@@ -286,22 +324,17 @@ When DEFAULT is nil and the value cannot be converted, remove KEY."
           (elisp-quality-ai-collector--normalize-location-fields normalized))
     normalized))
 
-(defun elisp-quality-ai-collector--failure-diagnostic (collector file error-data)
-  "Return a diagnostic for COLLECTOR failure on FILE with ERROR-DATA."
+(defun elisp-quality-ai-collector--record-failure (collector file error-data)
+  "Record COLLECTOR failure on FILE with ERROR-DATA."
   (let ((name (elisp-quality-ai-collector-name collector))
         (message
          (elisp-quality-ai-collector--truncate-string
           (error-message-string error-data)
           elisp-quality-ai-collector-failure-message-max-length)))
-    `(("source" . ,name)
-      ("collector" . ,name)
-      ("category" . "collector")
-      ("severity" . "warning")
-      ("file" . ,(expand-file-name file))
-      ("line" . 1)
-      ("message" . ,(format "Collector %s failed: %s"
-                             name message))
-      ("suggestion" . "Review the collector configuration or disable the collector."))))
+    (push `(("name" . ,name)
+            ("file" . ,(expand-file-name file))
+            ("message" . ,message))
+          elisp-quality-ai-collector--failure-records)))
 
 (defun elisp-quality-ai-collector--run-one (collector file)
   "Run COLLECTOR for FILE and return a list of diagnostics."
@@ -314,13 +347,15 @@ When DEFAULT is nil and the value cannot be converted, remove KEY."
         (funcall (elisp-quality-ai-collector-function collector)
                  (expand-file-name file))))
     (error
-     (list (elisp-quality-ai-collector--failure-diagnostic
-            collector file error-data)))))
+     (elisp-quality-ai-collector--record-failure collector file error-data)
+     nil)))
 
 (defun elisp-quality-ai-run-collectors-for-file (file &optional collectors)
   "Run enabled and available COLLECTORS for FILE.
 Return a vector of normalized diagnostics.  When COLLECTORS is nil, use
 `elisp-quality-ai-collector-registry'."
+  (unless elisp-quality-ai-collector--preserve-failures
+    (elisp-quality-ai-collector-clear-failures))
   (let ((file (expand-file-name file))
         diagnostics)
     (dolist (collector (elisp-quality-ai-collector--collectors collectors))
@@ -356,16 +391,19 @@ Return a vector of normalized diagnostics.  When COLLECTORS is nil, use
   "Run COLLECTORS for Emacs Lisp FILES in DIRECTORY.
 FILES defaults to every `.el' file under DIRECTORY.  Return a vector of objects
 with `file' and `diagnostics' fields."
+  (unless elisp-quality-ai-collector--preserve-failures
+    (elisp-quality-ai-collector-clear-failures))
   (let* ((root (file-name-as-directory (expand-file-name directory)))
          (files (or files (elisp-quality-ai-collector--elisp-files root))))
     (vconcat
-     (mapcar
-      (lambda (file)
-        (let ((absolute-file (expand-file-name file root)))
-          `(("file" . ,absolute-file)
-            ("diagnostics" . ,(elisp-quality-ai-run-collectors-for-file
-                               absolute-file collectors)))))
-      files))))
+     (let ((elisp-quality-ai-collector--preserve-failures t))
+       (mapcar
+        (lambda (file)
+          (let ((absolute-file (expand-file-name file root)))
+            `(("file" . ,absolute-file)
+              ("diagnostics" . ,(elisp-quality-ai-run-collectors-for-file
+                                 absolute-file collectors)))))
+        files)))))
 
 (defalias 'elisp-quality-ai-run-collectors-for-project
   #'elisp-quality-ai-run-collectors-for-directory

@@ -46,7 +46,7 @@
   "Required task keys.")
 
 (defconst elisp-quality-ai-test-required-collector-keys
-  '("name" "available" "requires" "enabled" "description")
+  '("name" "available" "requires" "enabled" "status" "description")
   "Required collector metadata keys.")
 
 (defconst elisp-quality-ai-test-required-jsonl-event-keys
@@ -414,6 +414,7 @@ BODY can use the variables `directory' and `file'."
       (should (equal "fake" (elisp-quality-ai-test--get "name" collector)))
       (should (eq t (elisp-quality-ai-test--get "available" collector)))
       (should (eq t (elisp-quality-ai-test--get "enabled" collector)))
+      (should (equal "ok" (elisp-quality-ai-test--get "status" collector)))
       (should (equal "Fake collector"
                      (elisp-quality-ai-test--get "description" collector)))
       (should (vectorp requires))
@@ -515,7 +516,7 @@ BODY can use the variables `directory' and `file'."
         (should (equal "style"
                        (elisp-quality-ai-test--get "category" diagnostic)))))))
 
-(ert-deftest elisp-quality-ai-collector-failures-become-diagnostics ()
+(ert-deftest elisp-quality-ai-collector-failures-appear-in-metadata ()
   (elisp-quality-ai-test-with-temp-elisp
       ";;; sample.el --- Sample -*- lexical-binding: t; -*-\n\n(defun sample-public (x)\n  \"Return X.\"\n  x)\n"
     (let ((elisp-quality-ai-collector-registry nil)
@@ -525,15 +526,21 @@ BODY can use the variables `directory' and `file'."
        (lambda (_file)
          (error "Boom")))
       (let* ((diagnostics (elisp-quality-ai-run-collectors-for-file file))
-             (diagnostic (aref diagnostics 0)))
-        (should (= 1 (length diagnostics)))
-        (should (equal "collector"
-                       (elisp-quality-ai-test--get "category" diagnostic)))
-        (should (equal "warning"
-                       (elisp-quality-ai-test--get "severity" diagnostic)))
-        (should (string-match-p
-                 "Collector broken failed: Boom"
-                 (elisp-quality-ai-test--get "message" diagnostic)))))))
+             (metadata (aref (elisp-quality-ai-collector-metadata) 0))
+             (failures (elisp-quality-ai-test--get "failures" metadata))
+             (failure (aref failures 0)))
+        (should (= 0 (length diagnostics)))
+        (should (equal "failed"
+                       (elisp-quality-ai-test--get "status" metadata)))
+        (should (= 1 (elisp-quality-ai-test--get "failure_count" metadata)))
+        (should (equal "Boom"
+                       (elisp-quality-ai-test--get "last_error" metadata)))
+        (should (equal "broken"
+                       (elisp-quality-ai-test--get "name" failure)))
+        (should (equal file
+                       (elisp-quality-ai-test--get "file" failure)))
+        (should (equal "Boom"
+                       (elisp-quality-ai-test--get "message" failure)))))))
 
 (ert-deftest elisp-quality-ai-collector-failure-messages-are-truncated ()
   (elisp-quality-ai-test-with-temp-elisp
@@ -545,10 +552,10 @@ BODY can use the variables `directory' and `file'."
        "broken"
        (lambda (_file)
         (error "%s" (make-string 100 ?x))))
-      (let* ((diagnostics (elisp-quality-ai-run-collectors-for-file file))
-             (diagnostic (aref diagnostics 0))
-             (message (elisp-quality-ai-test--get "message" diagnostic)))
-        (should (<= (length message) 40))
+      (let* ((_diagnostics (elisp-quality-ai-run-collectors-for-file file))
+             (metadata (aref (elisp-quality-ai-collector-metadata) 0))
+             (message (elisp-quality-ai-test--get "last_error" metadata)))
+        (should (<= (length message) 15))
         (should (string-suffix-p "..." message))))))
 
 (ert-deftest elisp-quality-ai-collector-run-directory-returns-file-results ()
@@ -733,7 +740,10 @@ BODY can use the variables `directory' and `file'."
              collector elisp-quality-ai-test-required-collector-keys)
             (should (eq :json-false
                         (elisp-quality-ai-test--get "available"
-                                                    collector)))))))))
+                                                    collector)))
+            (should (equal "unavailable"
+                           (elisp-quality-ai-test--get "status"
+                                                       collector)))))))))
 
 (ert-deftest elisp-quality-ai-external-library-available-detects-loaded-api ()
   (let ((spec '(:name "relint"

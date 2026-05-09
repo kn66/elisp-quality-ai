@@ -132,6 +132,11 @@ specific executable:
       '(("relint" . "/path/to/relint")))
 #+end_src
 
+Collector execution failures do not become source diagnostics or AI tasks.
+Instead, the collector metadata records =status: "failed"=, =failure_count=,
+=last_error=, and a =failures= array so tool problems stay separate from
+actionable project findings.
+
 When optional collectors are installed as Emacs packages, initialize packages
 before loading =elisp-quality-ai= in batch sessions:
 
