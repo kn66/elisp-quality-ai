@@ -1,0 +1,259 @@
+{
+  "schema": "elisp-quality-ai.project/v1",
+  "root": "/tmp/elisp-quality-ai-example/",
+  "summary": {
+    "files": 1,
+    "definitions": 2,
+    "diagnostics": 2,
+    "tasks": 2
+  },
+  "files": [
+    {
+      "schema": "elisp-quality-ai.file/v1",
+      "file": "/tmp/elisp-quality-ai-example/sample-package.el",
+      "summary": {
+        "definitions": 2,
+        "diagnostics": 2
+      },
+      "definitions": [
+        {
+          "name": "sample-undocumented",
+          "kind": "defun",
+          "file": "/tmp/elisp-quality-ai-example/sample-package.el",
+          "line": 8,
+          "end_line": 9,
+          "public": true,
+          "interactive": false,
+          "docstring": false,
+          "declaration": false,
+          "metrics": {
+            "lines": 2
+          }
+        },
+        {
+          "name": "sample-long",
+          "kind": "defun",
+          "file": "/tmp/elisp-quality-ai-example/sample-package.el",
+          "line": 11,
+          "end_line": 16,
+          "public": true,
+          "interactive": false,
+          "docstring": true,
+          "declaration": false,
+          "metrics": {
+            "lines": 6
+          }
+        }
+      ],
+      "diagnostics": [
+        {
+          "source": "elisp-quality-ai",
+          "category": "documentation",
+          "severity": "info",
+          "file": "/tmp/elisp-quality-ai-example/sample-package.el",
+          "symbol": "sample-undocumented",
+          "line": 8,
+          "message": "sample-undocumented has no obvious docstring.",
+          "suggestion": "Add a concise docstring that states behavior and important arguments."
+        },
+        {
+          "source": "elisp-quality-ai",
+          "category": "size",
+          "severity": "warning",
+          "file": "/tmp/elisp-quality-ai-example/sample-package.el",
+          "symbol": "sample-long",
+          "line": 11,
+          "metric": "definition-lines",
+          "value": 6,
+          "threshold": 3,
+          "message": "sample-long has 6 lines; threshold is 3.",
+          "suggestion": "Consider extracting smaller helpers while preserving the public interface."
+        }
+      ],
+      "collectors": [
+        {
+          "name": "checkdoc",
+          "available": true,
+          "requires": [
+            "checkdoc"
+          ],
+          "enabled": false,
+          "description": "Run Emacs built-in checkdoc over each source file."
+        },
+        {
+          "name": "byte-compile",
+          "available": true,
+          "requires": [
+            "bytecomp"
+          ],
+          "enabled": false,
+          "description": "Run Emacs byte compilation in a temporary output directory."
+        },
+        {
+          "name": "relint",
+          "available": false,
+          "requires": [
+            "relint"
+          ],
+          "enabled": false,
+          "description": "Run relint regular expression checks."
+        },
+        {
+          "name": "package-lint",
+          "available": false,
+          "requires": [
+            "package-lint"
+          ],
+          "enabled": false,
+          "description": "Run package-lint package metadata checks."
+        },
+        {
+          "name": "cognitive-complexity",
+          "available": false,
+          "requires": [
+            "cognitive-complexity"
+          ],
+          "enabled": false,
+          "description": "Run cognitive-complexity checks when installed."
+        },
+        {
+          "name": "elsa",
+          "available": false,
+          "requires": [
+            "elsa"
+          ],
+          "enabled": false,
+          "description": "Run Elsa static analysis when installed."
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "Refactor `sample-long` to improve maintainability",
+      "file": "/tmp/elisp-quality-ai-example/sample-package.el",
+      "symbol": "sample-long",
+      "line": 11,
+      "priority": 88,
+      "reason": [
+        "sample-long has 6 lines; threshold is 3."
+      ],
+      "constraints": [
+        "Preserve public behavior unless a diagnostic explicitly requires a behavior change.",
+        "Keep `sample-long' compatible with existing callers.",
+        "Prefer the smallest cohesive change that resolves the diagnostics.",
+        "Add or update tests when behavior changes."
+      ],
+      "suggested_steps": [
+        "Identify cohesive sub-operations inside the definition.",
+        "Extract helper functions without changing the public entry point.",
+        "Run the relevant test and lint commands after editing."
+      ],
+      "diagnostics": [
+        {
+          "source": "elisp-quality-ai",
+          "category": "size",
+          "severity": "warning",
+          "file": "/tmp/elisp-quality-ai-example/sample-package.el",
+          "symbol": "sample-long",
+          "line": 11,
+          "metric": "definition-lines",
+          "value": 6,
+          "threshold": 3,
+          "message": "sample-long has 6 lines; threshold is 3.",
+          "suggestion": "Consider extracting smaller helpers while preserving the public interface."
+        }
+      ]
+    },
+    {
+      "id": "task-002",
+      "title": "Document `sample-undocumented`",
+      "file": "/tmp/elisp-quality-ai-example/sample-package.el",
+      "symbol": "sample-undocumented",
+      "line": 8,
+      "priority": 35,
+      "reason": [
+        "sample-undocumented has no obvious docstring."
+      ],
+      "constraints": [
+        "Preserve public behavior unless a diagnostic explicitly requires a behavior change.",
+        "Keep `sample-undocumented' compatible with existing callers.",
+        "Prefer the smallest cohesive change that resolves the diagnostics.",
+        "Add or update tests when behavior changes."
+      ],
+      "suggested_steps": [
+        "Add a concise docstring describing behavior, arguments, and return value.",
+        "Run the relevant test and lint commands after editing."
+      ],
+      "diagnostics": [
+        {
+          "source": "elisp-quality-ai",
+          "category": "documentation",
+          "severity": "info",
+          "file": "/tmp/elisp-quality-ai-example/sample-package.el",
+          "symbol": "sample-undocumented",
+          "line": 8,
+          "message": "sample-undocumented has no obvious docstring.",
+          "suggestion": "Add a concise docstring that states behavior and important arguments."
+        }
+      ]
+    }
+  ],
+  "collectors": [
+    {
+      "name": "checkdoc",
+      "available": true,
+      "requires": [
+        "checkdoc"
+      ],
+      "enabled": false,
+      "description": "Run Emacs built-in checkdoc over each source file."
+    },
+    {
+      "name": "byte-compile",
+      "available": true,
+      "requires": [
+        "bytecomp"
+      ],
+      "enabled": false,
+      "description": "Run Emacs byte compilation in a temporary output directory."
+    },
+    {
+      "name": "relint",
+      "available": false,
+      "requires": [
+        "relint"
+      ],
+      "enabled": false,
+      "description": "Run relint regular expression checks."
+    },
+    {
+      "name": "package-lint",
+      "available": false,
+      "requires": [
+        "package-lint"
+      ],
+      "enabled": false,
+      "description": "Run package-lint package metadata checks."
+    },
+    {
+      "name": "cognitive-complexity",
+      "available": false,
+      "requires": [
+        "cognitive-complexity"
+      ],
+      "enabled": false,
+      "description": "Run cognitive-complexity checks when installed."
+    },
+    {
+      "name": "elsa",
+      "available": false,
+      "requires": [
+        "elsa"
+      ],
+      "enabled": false,
+      "description": "Run Elsa static analysis when installed."
+    }
+  ]
+}

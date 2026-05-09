@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PACKAGE_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+exec emacs -Q --batch -L "$PACKAGE_DIR" \
+  --eval "(require 'package)" \
+  --eval "(package-initialize)" \
+  --eval "(setq elisp-quality-ai-enable-elsa t)" \
+  --eval "(let ((load-suffixes '(\".el\" \".elc\" \"\")) (warning-minimum-level :emergency) (inhibit-message t)) (require 'elsa nil t))" \
+  --eval "(require 'elisp-quality-ai)" \
+  --eval "(elisp-quality-ai-cli-main)" \
+  -- "$@"

@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Emacs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y emacs-nox make
+
+      - name: Run tests
+        run: make test
+
+      - name: Byte compile
+        run: make compile BUILD_DIR=/tmp/elisp-quality-ai-byte-compile
+
+      - name: Install package-lint
+        run: |
+          emacs -Q --batch \
+            --eval "(require 'package)" \
+            --eval "(setq package-archives '((\"gnu\" . \"https://elpa.gnu.org/packages/\") (\"melpa\" . \"https://melpa.org/packages/\")))" \
+            --eval "(package-initialize)" \
+            --eval "(package-refresh-contents)" \
+            --eval "(package-install 'package-lint)"
+
+      - name: Run package-lint
+        run: make package-lint

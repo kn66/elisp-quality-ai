@@ -1,0 +1,13 @@
+.agents/
+.codex/
+.eask/
+.elsa/
+.eldev/
+.build/
+*.elc
+*.eln
+*-autoloads.el
+dist/
+quality-report.json
+quality-report.jsonl
+quality-report.md
