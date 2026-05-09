@@ -119,7 +119,9 @@ Optional external collectors are registered for `relint`, `package-lint`,
 package is unavailable, the collector remains in metadata with `available`
 encoded as `false` and is skipped during collection.  Elsa is registered but
 disabled by default; its metadata uses `enabled: false` until
-`elisp-quality-ai-enable-elsa` is non-nil.
+`elisp-quality-ai-enable-elsa` is non-nil.  When enabled, Elsa runs in an
+isolated Emacs subprocess by default, with failures or timeouts reported through
+collector metadata rather than source diagnostics.
 
 ## Definition
 

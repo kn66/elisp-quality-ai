@@ -798,6 +798,49 @@ BODY can use the variables `directory' and `file'."
       (should (eq :json-false
                   (elisp-quality-ai-test--get "enabled" elsa))))))
 
+(ert-deftest elisp-quality-ai-elsa-collector-prefers-subprocess ()
+  (let ((spec '(:name "elsa"
+                :category "type"
+                :commands ("elsa")
+                :libraries ("elsa")
+                :functions ((elsa-analyse-file . elsa-file))))
+        (elisp-quality-ai-elsa-use-subprocess t)
+        (elisp-quality-ai-external-use-emacs-packages t)
+        called)
+    (cl-letf (((symbol-function 'locate-library)
+               (lambda (library)
+                 (and (equal library "elsa") "/tmp/elsa.el")))
+              ((symbol-function 'elisp-quality-ai-external--command)
+               (lambda (_spec) "/tmp/elsa-command"))
+              ((symbol-function 'elisp-quality-ai-external--run-command)
+               (lambda (&rest _args)
+                 (error "Command path should not run for Elsa")))
+              ((symbol-function 'elisp-quality-ai-external--run-elsa-subprocess)
+               (lambda (_spec file)
+                 (setq called file)
+                 nil)))
+      (should-not
+       (elisp-quality-ai-external--collect-file spec "/tmp/sample.el"))
+      (should (equal "/tmp/sample.el" called)))))
+
+(ert-deftest elisp-quality-ai-elsa-subprocess-result-reader-handles-failure ()
+  (let ((output-file (make-temp-file "elisp-quality-ai-elsa-result-"))
+        (stderr-file (make-temp-file "elisp-quality-ai-elsa-stderr-")))
+    (unwind-protect
+        (progn
+          (with-temp-file output-file
+            (prin1 '(error . "Boom") (current-buffer)))
+          (with-temp-file stderr-file
+            (insert "stderr detail"))
+          (should-error
+           (elisp-quality-ai-external--read-elsa-subprocess-result
+            output-file stderr-file 1)
+           :type 'error))
+      (when (file-exists-p output-file)
+        (delete-file output-file))
+      (when (file-exists-p stderr-file)
+        (delete-file stderr-file)))))
+
 (ert-deftest elisp-quality-ai-relint-command-output-normalizes-diagnostic ()
   (elisp-quality-ai-test-with-temp-elisp
       ";;; sample.el --- Sample -*- lexical-binding: t; -*-\n\n(defun sample-public ()\n  \"Return non-nil.\"\n  t)\n"

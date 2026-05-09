@@ -183,6 +183,15 @@ batch APIs have process-wide side effects.  Enable it explicitly with:
 (setq elisp-quality-ai-enable-elsa t)
 #+end_src
 
+When enabled, Elsa runs in an isolated Emacs subprocess by default.  This keeps
+Elsa's global state, cache setup, and stderr output away from the main report
+process.  Tune or disable that behavior with:
+
+#+begin_src elisp
+(setq elisp-quality-ai-elsa-subprocess-timeout 30)
+(setq elisp-quality-ai-elsa-use-subprocess t)
+#+end_src
+
 Tune the built-in size diagnostic with:
 
 #+begin_src elisp

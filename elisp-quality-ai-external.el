@@ -57,6 +57,18 @@ non-nil."
   :type 'boolean
   :group 'elisp-quality-ai)
 
+(defcustom elisp-quality-ai-elsa-use-subprocess t
+  "Whether the Elsa collector runs in an isolated Emacs subprocess.
+Running Elsa out of process keeps its global state, cache setup, and noisy
+stderr output away from the main report process."
+  :type 'boolean
+  :group 'elisp-quality-ai)
+
+(defcustom elisp-quality-ai-elsa-subprocess-timeout 30
+  "Seconds to wait for one Elsa subprocess before failing the collector."
+  :type 'natnum
+  :group 'elisp-quality-ai)
+
 (defcustom elisp-quality-ai-elsa-ignored-message-regexps
   '("\\bframe-configuration\\b"
     "\\b--cl-[[:alnum:]-]+--\\b"
@@ -744,6 +756,139 @@ When COMPILED is non-nil, return the compiled cache file name."
         (let ((inhibit-read-only t))
           (erase-buffer))))))
 
+(defun elisp-quality-ai-external--package-directory ()
+  "Return the directory containing `elisp-quality-ai-external'."
+  (file-name-directory
+   (or load-file-name
+       (locate-library "elisp-quality-ai-external")
+       (buffer-file-name)
+       default-directory)))
+
+(defun elisp-quality-ai-external--elsa-subprocess-form
+    (spec file output-file load-path-value)
+  "Return child Emacs form for Elsa SPEC, FILE, OUTPUT-FILE, and LOAD-PATH-VALUE."
+  `(let ((load-path ',load-path-value)
+         (warning-minimum-level :emergency)
+         (inhibit-message t)
+         result)
+     (condition-case error-data
+         (progn
+           (require 'package)
+           (package-initialize)
+           (require 'elisp-quality-ai-external)
+           (setq elisp-quality-ai-enable-elsa t)
+           (setq elisp-quality-ai-elsa-use-subprocess nil)
+           (setq elisp-quality-ai-elsa-ignored-message-regexps
+                 ',elisp-quality-ai-elsa-ignored-message-regexps)
+           (setq result
+                 (elisp-quality-ai-external--run-library ',spec ,file))
+           (with-temp-file ,output-file
+             (let ((print-length nil)
+                   (print-level nil))
+               (prin1 (cons 'ok result) (current-buffer)))))
+       (error
+        (with-temp-file ,output-file
+          (let ((print-length nil)
+                (print-level nil))
+            (prin1 (cons 'error (error-message-string error-data))
+                   (current-buffer))))))))
+
+(defun elisp-quality-ai-external--call-with-timeout
+    (program arguments timeout stderr-file)
+  "Run PROGRAM with ARGUMENTS, waiting up to TIMEOUT seconds.
+Write stderr to STDERR-FILE and return the process exit status.  Signal an
+error when the process times out."
+  (let* ((stderr-buffer (generate-new-buffer " *elisp-quality-ai-stderr*"))
+         (process
+          (make-process
+           :name "elisp-quality-ai-elsa"
+           :buffer nil
+           :command (cons program arguments)
+           :stderr stderr-buffer
+           :noquery t))
+         (deadline (and (natnump timeout)
+                        (> timeout 0)
+                        (+ (float-time) timeout))))
+    (unwind-protect
+        (progn
+          (while (and (process-live-p process)
+                      (or (not deadline) (< (float-time) deadline)))
+            (accept-process-output process 0.1))
+          (when (process-live-p process)
+            (delete-process process)
+            (error "Elsa subprocess timed out after %s seconds" timeout))
+          (with-current-buffer stderr-buffer
+            (write-region (point-min) (point-max) stderr-file nil 'silent))
+          (process-exit-status process))
+      (when (buffer-live-p stderr-buffer)
+        (kill-buffer stderr-buffer)))))
+
+(defun elisp-quality-ai-external--read-file-string (file)
+  "Return FILE contents as a string, or an empty string when FILE is absent."
+  (if (file-exists-p file)
+      (with-temp-buffer
+        (insert-file-contents file)
+        (buffer-string))
+    ""))
+
+(defun elisp-quality-ai-external--elsa-subprocess-status-error
+    (status stderr)
+  "Signal an Elsa subprocess error for STATUS and STDERR."
+  (error "Elsa subprocess exited with status %s%s"
+         status
+         (if (string-empty-p stderr) "" (format ": %s" stderr))))
+
+(defun elisp-quality-ai-external--read-elsa-subprocess-result
+    (output-file stderr-file status)
+  "Read Elsa subprocess OUTPUT-FILE and STDERR-FILE for process STATUS."
+  (let ((stderr (string-trim
+                 (elisp-quality-ai-external--read-file-string stderr-file))))
+    (unless (file-exists-p output-file)
+      (error "Elsa subprocess produced no result%s"
+             (if (string-empty-p stderr) "" (format ": %s" stderr))))
+    (with-temp-buffer
+      (insert-file-contents output-file)
+      (pcase (read (current-buffer))
+        (`(ok . ,diagnostics)
+         (if (and (integerp status) (not (= 0 status)) (null diagnostics))
+             (elisp-quality-ai-external--elsa-subprocess-status-error
+              status stderr)
+           diagnostics))
+        (`(error . ,message)
+         (error "%s" message))
+        (other
+         (error "Elsa subprocess returned unsupported result: %S" other))))))
+
+(defun elisp-quality-ai-external--run-elsa-subprocess (spec file)
+  "Run Elsa SPEC for FILE in an isolated Emacs subprocess."
+  (let* ((output-file (make-temp-file "elisp-quality-ai-elsa-result-"))
+         (stderr-file (make-temp-file "elisp-quality-ai-elsa-stderr-"))
+         (package-directory (elisp-quality-ai-external--package-directory))
+         (load-path-value
+          (delete-dups
+           (mapcar #'expand-file-name
+                   (cons package-directory load-path))))
+         (form
+          (elisp-quality-ai-external--elsa-subprocess-form
+           spec (expand-file-name file) output-file load-path-value))
+         (status nil))
+    (unwind-protect
+        (progn
+          (setq status
+                (elisp-quality-ai-external--call-with-timeout
+                 invocation-name
+                 (list "-Q" "--batch"
+                       "-L" package-directory
+                       "--eval" (prin1-to-string form))
+                 elisp-quality-ai-elsa-subprocess-timeout
+                 stderr-file))
+          (elisp-quality-ai-external--read-elsa-subprocess-result
+           output-file stderr-file status))
+      (when (file-exists-p output-file)
+        (delete-file output-file))
+      (when (file-exists-p stderr-file)
+        (delete-file stderr-file)))))
+
 (defun elisp-quality-ai-external--run-library (spec file)
   "Run installed Emacs package implementation for SPEC and FILE."
   (dolist (library (elisp-quality-ai-external--libraries spec))
@@ -771,9 +916,16 @@ When COMPILED is non-nil, return the compiled cache file name."
 (defun elisp-quality-ai-external--collect-file (spec file)
   "Collect diagnostics for FILE using external tool SPEC."
   (when (elisp-quality-ai-external--collect-file-p spec file)
-    (if-let ((command (elisp-quality-ai-external--command spec)))
-        (elisp-quality-ai-external--run-command spec file command)
-      (elisp-quality-ai-external--run-library spec file))))
+    (let ((command (elisp-quality-ai-external--command spec)))
+      (cond
+       ((and (elisp-quality-ai-external--elsa-spec-p spec)
+             elisp-quality-ai-elsa-use-subprocess
+             (elisp-quality-ai-external--library-available-p spec))
+        (elisp-quality-ai-external--run-elsa-subprocess spec file))
+       (command
+        (elisp-quality-ai-external--run-command spec file command))
+       (t
+        (elisp-quality-ai-external--run-library spec file))))))
 
 (defun elisp-quality-ai-external-register-collectors ()
   "Register all optional external tool collectors."
