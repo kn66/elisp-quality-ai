@@ -23,6 +23,8 @@
 (defvar ansi-inhibit-ansi)
 (defvar elsa-global-state)
 (defvar warning-minimum-level)
+(defvar elisp-quality-ai-external--elsa-loadable-cache nil
+  "Cached results for checking whether Elsa can be loaded in batch.")
 
 (defcustom elisp-quality-ai-external-use-emacs-packages t
   "Whether external collectors may use installed Emacs package APIs.
@@ -172,9 +174,68 @@ from actionable project defects."
   "Return non-nil when SPEC is the package-lint collector."
   (equal (elisp-quality-ai-external--get :name spec) "package-lint"))
 
+(defun elisp-quality-ai-external--elsa-loadable-form (libraries)
+  "Return a batch form that verifies Elsa LIBRARIES can be loaded."
+  `(let ((load-path ',(delete-dups (mapcar #'expand-file-name load-path))))
+     (require 'package)
+     (package-initialize)
+     (condition-case _error-data
+         (progn
+           ,@(mapcar (lambda (library)
+                       `(require ',(intern library)))
+                     libraries)
+           (kill-emacs 0))
+       (error
+        (kill-emacs 1)))))
+
+(defun elisp-quality-ai-external--elsa-loadable-cache-key (spec)
+  "Return cache key for Elsa loadability check of SPEC."
+  (list (elisp-quality-ai-external--libraries spec)
+        (delete-dups (mapcar #'expand-file-name load-path))
+        invocation-name
+        elisp-quality-ai-elsa-subprocess-timeout))
+
+(defun elisp-quality-ai-external--elsa-library-loadable-p (spec)
+  "Return non-nil when Elsa for SPEC can be loaded in batch.
+The Elsa collector is normally isolated in a subprocess, so this check mirrors
+that environment and avoids marking a broken Elsa installation as available."
+  (if (or (not elisp-quality-ai-enable-elsa)
+          (not elisp-quality-ai-elsa-use-subprocess))
+      t
+    (let* ((cache-key (elisp-quality-ai-external--elsa-loadable-cache-key spec))
+           (cached (assoc cache-key
+                          elisp-quality-ai-external--elsa-loadable-cache)))
+      (if cached
+          (cdr cached)
+        (let* ((stderr-file (make-temp-file
+                             "elisp-quality-ai-elsa-load-stderr-"))
+               (form (elisp-quality-ai-external--elsa-loadable-form
+                      (elisp-quality-ai-external--libraries spec)))
+               (status nil)
+               (loadable nil))
+          (unwind-protect
+              (progn
+                (setq status
+                      (condition-case nil
+                          (elisp-quality-ai-external--call-with-timeout
+                           invocation-name
+                           (list "-Q" "--batch"
+                                 "--eval" (prin1-to-string form))
+                           elisp-quality-ai-elsa-subprocess-timeout
+                           stderr-file)
+                        (error 1)))
+                (setq loadable (and (integerp status) (= 0 status)))
+                (push (cons cache-key loadable)
+                      elisp-quality-ai-external--elsa-loadable-cache)
+                loadable)
+            (when (file-exists-p stderr-file)
+              (delete-file stderr-file))))))))
+
 (defun elisp-quality-ai-external--library-available-p (spec)
   "Return non-nil when an Emacs package for SPEC is available."
   (and elisp-quality-ai-external-use-emacs-packages
+       (or (not (elisp-quality-ai-external--elsa-spec-p spec))
+           (elisp-quality-ai-external--elsa-library-loadable-p spec))
        (or
         (seq-some
          (lambda (library)
@@ -530,6 +591,22 @@ SPEC and FILE identify the collector and file.  FUNCTION is the
          (and expression
               (elisp-quality-ai-external--slot-value expression 'column))))))
 
+(defun elisp-quality-ai-external--safe-prin1-to-string (object)
+  "Return a printable representation of OBJECT, or nil when printing fails."
+  (ignore-errors
+    (let ((print-length 20)
+          (print-level 5))
+      (prin1-to-string object))))
+
+(defun elisp-quality-ai-external--elsa-message-text (message)
+  "Return diagnostic text for Elsa MESSAGE without letting Elsa errors escape."
+  (or (elisp-quality-ai-external--slot-value message 'message)
+      (ignore-errors
+        (and (fboundp 'elsa-message-format)
+             (funcall 'elsa-message-format message)))
+      (elisp-quality-ai-external--safe-prin1-to-string message)
+      "Elsa reported a finding that could not be formatted."))
+
 (defun elisp-quality-ai-external--elsa-message-diagnostic
     (spec file message)
   "Return a normalized diagnostic for SPEC, FILE, and Elsa MESSAGE."
@@ -538,10 +615,7 @@ SPEC and FILE identify the collector and file.  FUNCTION is the
     (elisp-quality-ai-external--diagnostic
      spec file line column
      (elisp-quality-ai-external--elsa-message-severity message)
-     (or (elisp-quality-ai-external--slot-value message 'message)
-         (and (fboundp 'elsa-message-format)
-              (funcall 'elsa-message-format message))
-         (format "%S" message)))))
+     (elisp-quality-ai-external--elsa-message-text message))))
 
 (defun elisp-quality-ai-external--file-declares-symbol-p (file symbol)
   "Return non-nil when FILE declares SYMBOL."
@@ -892,7 +966,10 @@ error when the process times out."
 (defun elisp-quality-ai-external--run-library (spec file)
   "Run installed Emacs package implementation for SPEC and FILE."
   (dolist (library (elisp-quality-ai-external--libraries spec))
-    (require (intern library) nil t))
+    (let ((load-suffixes (if (elisp-quality-ai-external--elsa-spec-p spec)
+                             '(".el" ".elc" "")
+                           load-suffixes)))
+      (require (intern library) nil t)))
   (let ((function-entry
          (seq-find
           (lambda (entry)

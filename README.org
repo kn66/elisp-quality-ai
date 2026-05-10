@@ -192,6 +192,12 @@ process.  Tune or disable that behavior with:
 (setq elisp-quality-ai-elsa-use-subprocess t)
 #+end_src
 
+When Elsa is enabled and subprocess isolation is active, =elisp-quality-ai=
+first checks whether Elsa can be loaded in a clean batch Emacs.  If the local
+Elsa installation is incompatible with the current Emacs or cannot load its
+dependencies, the collector is reported as =unavailable= instead of producing
+one failure per source file.
+
 Tune the built-in size diagnostic with:
 
 #+begin_src elisp

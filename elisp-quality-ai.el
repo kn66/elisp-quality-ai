@@ -236,7 +236,7 @@ When INCLUDE-DEFINITIONS is non-nil, include the full definition inventory."
     options))
 
 (defun elisp-quality-ai--cli-apply-load-options (load-paths load-files)
-  "Apply CLI LOAD-PATHS and LOAD-FILES before analysis runs."
+  "Apply CLI LOAD-PATHS and LOAD-FILES before running analysis."
   (let ((directories
          (mapcar #'expand-file-name (nreverse (copy-sequence load-paths)))))
     (dolist (directory directories)

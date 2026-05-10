@@ -823,6 +823,39 @@ BODY can use the variables `directory' and `file'."
        (elisp-quality-ai-external--collect-file spec "/tmp/sample.el"))
       (should (equal "/tmp/sample.el" called)))))
 
+(ert-deftest elisp-quality-ai-elsa-library-load-prefers-source ()
+  (let ((spec '(:name "elsa"
+                :category "type"
+                :libraries ("elsa")
+                :functions ((elisp-quality-ai-test--fake-elsa-file . file))))
+        observed-load-suffixes)
+    (cl-letf (((symbol-function 'require)
+               (lambda (_feature &optional _filename _noerror)
+                 (setq observed-load-suffixes load-suffixes)
+                 t))
+              ((symbol-function 'elisp-quality-ai-test--fake-elsa-file)
+               (lambda (_file) nil)))
+      (should-not
+       (elisp-quality-ai-external--run-library spec "/tmp/sample.el"))
+      (should (equal '(".el" ".elc" "") observed-load-suffixes)))))
+
+(ert-deftest elisp-quality-ai-elsa-library-available-requires-batch-load ()
+  (let ((spec '(:name "elsa"
+                :category "type"
+                :libraries ("elsa")
+                :functions ((elsa-analyse-file . elsa-file))))
+        (elisp-quality-ai-enable-elsa t)
+        (elisp-quality-ai-elsa-use-subprocess t)
+        (elisp-quality-ai-external-use-emacs-packages t)
+        (elisp-quality-ai-external--elsa-loadable-cache nil))
+    (cl-letf (((symbol-function 'locate-library)
+               (lambda (library)
+                 (and (equal library "elsa") "/tmp/elsa.el")))
+              ((symbol-function 'elisp-quality-ai-external--call-with-timeout)
+               (lambda (&rest _args) 1)))
+      (should-not
+       (elisp-quality-ai-external--library-available-p spec)))))
+
 (ert-deftest elisp-quality-ai-elsa-subprocess-result-reader-handles-failure ()
   (let ((output-file (make-temp-file "elisp-quality-ai-elsa-result-"))
         (stderr-file (make-temp-file "elisp-quality-ai-elsa-stderr-")))
@@ -923,6 +956,21 @@ BODY can use the variables `directory' and `file'."
     (should (equal "Reference to free variable `real-problem'."
                    (elisp-quality-ai-test--get "message"
                                                (car diagnostics))))))
+
+(ert-deftest elisp-quality-ai-elsa-message-format-error-does-not-escape ()
+  (let ((spec '(:name "elsa"
+                :category "type"))
+        (file "/tmp/sample.el"))
+    (cl-letf (((symbol-function 'elsa-message-format)
+               (lambda (_message)
+                 (error "Symbol's value as variable is void: elsa-explainer-message"))))
+      (let ((diagnostic
+             (elisp-quality-ai-external--elsa-message-diagnostic
+              spec file (make-symbol "fake-elsa-message"))))
+        (should (equal "elsa"
+                       (elisp-quality-ai-test--get "collector" diagnostic)))
+        (should (stringp
+                 (elisp-quality-ai-test--get "message" diagnostic)))))))
 
 (ert-deftest elisp-quality-ai-elsa-normalizer-filters-declared-free-variable ()
   (let* ((directory (make-temp-file "elisp-quality-ai-" t))

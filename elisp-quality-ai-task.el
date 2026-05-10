@@ -121,6 +121,74 @@ Eask.  Set this to a list of strings to override inference."
         (format "%s\0%s" file symbol)
       (format "%s\0%s" file line))))
 
+(defun elisp-quality-ai-task--diagnostic-overage (diagnostic)
+  "Return how far DIAGNOSTIC value is over its threshold."
+  (let ((value (elisp-quality-ai-task--get "value" diagnostic))
+        (threshold (elisp-quality-ai-task--get "threshold" diagnostic)))
+    (and (numberp value) (numberp threshold)
+         (> value threshold)
+         (- value threshold))))
+
+(defun elisp-quality-ai-task--missing-docstring-p (category metric)
+  "Return non-nil when CATEGORY and METRIC describe a missing docstring."
+  (and (equal category "documentation")
+       (or (not metric) (equal metric "docstring"))))
+
+(defun elisp-quality-ai-task--definition-size-score
+    (category metric overage)
+  "Return size score for CATEGORY, METRIC, and OVERAGE."
+  (if (or (equal category "size")
+          (equal metric "definition-lines"))
+      (elisp-quality-ai-task--bounded-signal-score
+       overage "definition_length_overage"
+       "definition_length_overage_cap")
+    0))
+
+(defun elisp-quality-ai-task--complexity-score
+    (diagnostic category overage)
+  "Return complexity score for DIAGNOSTIC, CATEGORY, and OVERAGE."
+  (if (or (equal category "complexity")
+          (elisp-quality-ai-task--metric-match-p
+           diagnostic '("complexity")))
+      (elisp-quality-ai-task--bounded-signal-score
+       overage "complexity_overage"
+       "complexity_overage_cap")
+    0))
+
+(defun elisp-quality-ai-task--coverage-score
+    (diagnostic category)
+  "Return test coverage score for DIAGNOSTIC and CATEGORY."
+  (let ((coverage (elisp-quality-ai-task--numeric-get
+                   '("coverage" "test_coverage" "test-coverage")
+                   diagnostic))
+        (threshold
+         (elisp-quality-ai-task--numeric-get
+          '("coverage_threshold" "coverage-threshold" "threshold")
+          diagnostic)))
+    (if (and (or (equal category "test")
+                 (elisp-quality-ai-task--metric-match-p
+                  diagnostic '("coverage" "test")))
+             (numberp coverage)
+             (numberp threshold)
+             (< coverage threshold))
+        (elisp-quality-ai-task--bounded-signal-score
+         (- threshold coverage)
+         "test_coverage_gap" "test_coverage_gap_cap")
+      0)))
+
+(defun elisp-quality-ai-task--git-churn-score (diagnostic)
+  "Return git churn score for DIAGNOSTIC."
+  (let ((churn (elisp-quality-ai-task--numeric-get
+                '("git_churn" "git-churn" "churn")
+                diagnostic))
+        (value (elisp-quality-ai-task--get "value" diagnostic)))
+    (if (or churn
+            (elisp-quality-ai-task--metric-match-p
+             diagnostic '("git.*churn" "churn")))
+        (elisp-quality-ai-task--bounded-signal-score
+         (or churn value) "git_churn" "git_churn_cap")
+      0)))
+
 (defun elisp-quality-ai-task--diagnostic-score (diagnostic)
   "Return a priority contribution for DIAGNOSTIC."
   (let* ((severity (elisp-quality-ai-task--get "severity" diagnostic))
@@ -128,58 +196,20 @@ Eask.  Set this to a list of strings to override inference."
          (metric (elisp-quality-ai-task--get "metric" diagnostic))
          (base (elisp-quality-ai-task--weight "severity" severity))
          (category-score (elisp-quality-ai-task--weight "category" category))
-         (value (elisp-quality-ai-task--get "value" diagnostic))
-         (threshold (elisp-quality-ai-task--get "threshold" diagnostic))
-         (overage (and (numberp value) (numberp threshold)
-                       (> value threshold)
-                       (- value threshold)))
-         (coverage (elisp-quality-ai-task--numeric-get
-                    '("coverage" "test_coverage" "test-coverage")
-                    diagnostic))
-         (coverage-threshold
-          (elisp-quality-ai-task--numeric-get
-           '("coverage_threshold" "coverage-threshold" "threshold")
-           diagnostic))
-         (git-churn (elisp-quality-ai-task--numeric-get
-                     '("git_churn" "git-churn" "churn")
-                     diagnostic))
+         (overage (elisp-quality-ai-task--diagnostic-overage diagnostic))
          (missing-docstring
-          (and (equal category "documentation")
-               (or (not metric) (equal metric "docstring")))))
+          (elisp-quality-ai-task--missing-docstring-p category metric)))
     (+ base
        category-score
        (if missing-docstring
            (elisp-quality-ai-task--weight "signals" "missing_docstring")
          0)
-       (if (or (equal category "size")
-               (equal metric "definition-lines"))
-           (elisp-quality-ai-task--bounded-signal-score
-            overage "definition_length_overage"
-            "definition_length_overage_cap")
-         0)
-       (if (or (equal category "complexity")
-               (elisp-quality-ai-task--metric-match-p
-                diagnostic '("complexity")))
-           (elisp-quality-ai-task--bounded-signal-score
-            overage "complexity_overage"
-            "complexity_overage_cap")
-         0)
-       (if (and (or (equal category "test")
-                    (elisp-quality-ai-task--metric-match-p
-                     diagnostic '("coverage" "test")))
-                (numberp coverage)
-                (numberp coverage-threshold)
-                (< coverage coverage-threshold))
-           (elisp-quality-ai-task--bounded-signal-score
-            (- coverage-threshold coverage)
-            "test_coverage_gap" "test_coverage_gap_cap")
-         0)
-       (if (or git-churn
-               (elisp-quality-ai-task--metric-match-p
-                diagnostic '("git.*churn" "churn")))
-           (elisp-quality-ai-task--bounded-signal-score
-            (or git-churn value) "git_churn" "git_churn_cap")
-         0))))
+       (elisp-quality-ai-task--definition-size-score
+        category metric overage)
+       (elisp-quality-ai-task--complexity-score
+        diagnostic category overage)
+       (elisp-quality-ai-task--coverage-score diagnostic category)
+       (elisp-quality-ai-task--git-churn-score diagnostic))))
 
 (defun elisp-quality-ai-task--group-score (diagnostics)
   "Return the priority score for grouped DIAGNOSTICS."
@@ -203,40 +233,44 @@ Eask.  Set this to a list of strings to override inference."
              (elisp-quality-ai-task--get "category" diagnostic))
            diagnostics)))
 
+(defconst elisp-quality-ai-task--title-rules
+  '((("compile") "Fix compile issues for %s" "Fix compile issues")
+    (("type") "Fix static analysis issues for %s" "Fix static analysis issues")
+    (("complexity" "size")
+     "Refactor %s to improve maintainability"
+     "Refactor code to improve maintainability")
+    (("test") "Improve test coverage for %s" "Improve test coverage")
+    (("regexp") "Fix regexp issues for %s" "Fix regexp issues")
+    (("package") nil "Fix package metadata issues")
+    (("documentation") "Document %s" "Document quality findings"))
+  "Rules for mapping diagnostic categories to task titles.")
+
+(defun elisp-quality-ai-task--title-rule (categories)
+  "Return the first title rule matching CATEGORIES."
+  (seq-find
+   (lambda (rule)
+     (seq-some (lambda (category)
+                 (member category categories))
+               (car rule)))
+   elisp-quality-ai-task--title-rules))
+
+(defun elisp-quality-ai-task--format-title-rule (rule subject)
+  "Return title for RULE and SUBJECT."
+  (let ((subject-format (nth 1 rule))
+        (fallback-title (nth 2 rule)))
+    (if (and subject subject-format)
+        (format subject-format subject)
+      fallback-title)))
+
 (defun elisp-quality-ai-task--title (symbol categories)
   "Return a task title for SYMBOL and CATEGORIES."
-  (let ((subject (and symbol (format "`%s`" symbol))))
-    (cond
-     ((member "compile" categories)
-      (if subject
-          (format "Fix compile issues for %s" subject)
-        "Fix compile issues"))
-     ((member "type" categories)
-      (if subject
-          (format "Fix static analysis issues for %s" subject)
-        "Fix static analysis issues"))
-     ((or (member "complexity" categories) (member "size" categories))
-      (if subject
-          (format "Refactor %s to improve maintainability" subject)
-        "Refactor code to improve maintainability"))
-     ((member "test" categories)
-      (if subject
-          (format "Improve test coverage for %s" subject)
-        "Improve test coverage"))
-     ((member "regexp" categories)
-      (if subject
-          (format "Fix regexp issues for %s" subject)
-        "Fix regexp issues"))
-     ((member "package" categories)
-      "Fix package metadata issues")
-     ((member "documentation" categories)
-      (if subject
-          (format "Document %s" subject)
-        "Document quality findings"))
-     (t
-      (if subject
-          (format "Address quality findings for %s" subject)
-        "Address quality findings")))))
+  (let ((subject (and symbol (format "`%s`" symbol)))
+        (rule (elisp-quality-ai-task--title-rule categories)))
+    (if rule
+        (elisp-quality-ai-task--format-title-rule rule subject)
+      (elisp-quality-ai-task--format-title-rule
+       '(nil "Address quality findings for %s" "Address quality findings")
+       subject))))
 
 (defun elisp-quality-ai-task--constraints (symbol)
   "Return task constraints for SYMBOL."
