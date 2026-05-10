@@ -209,7 +209,11 @@ parsed or applied safely."
     (insert-file-contents file)
     (setq buffer-file-name file)
     (cl-letf (((symbol-function 'message) (lambda (&rest _args) nil)))
-      (emacs-lisp-mode))
+      ;; Avoid mode setup applying malformed file-local variables before we
+      ;; can turn them into a normal diagnostic below.
+      (let ((enable-local-variables nil)
+            (enable-local-eval nil))
+        (emacs-lisp-mode)))
     (let (definitions diagnostics)
       (when-let ((diagnostic
                   (elisp-quality-ai-core--apply-safe-file-local-variables
