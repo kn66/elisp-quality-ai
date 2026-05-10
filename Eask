@@ -2,7 +2,7 @@
          "0.1.0"
          "AI-friendly quality reports for Emacs Lisp")
 
-(website-url "https://example.com/elisp-quality-ai")
+(website-url "https://github.com/kn66/elisp-quality-ai")
 (keywords "lisp" "tools" "maint")
 (package-file "elisp-quality-ai.el")
 

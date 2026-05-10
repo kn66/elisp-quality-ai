@@ -7,7 +7,7 @@
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "29.1"))
 ;; Keywords: lisp, tools, maint
-;; URL: https://example.com/elisp-quality-ai
+;; URL: https://github.com/kn66/elisp-quality-ai
 
 ;;; Commentary:
 
