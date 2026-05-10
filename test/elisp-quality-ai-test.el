@@ -288,6 +288,19 @@ BODY can use the variables `directory' and `file'."
                      (elisp-quality-ai-test--get "severity" diagnostic)))
       (should (= 1 (elisp-quality-ai-test--get "line" diagnostic))))))
 
+(ert-deftest elisp-quality-ai-read-definition-data-delays-mode-hooks ()
+  (elisp-quality-ai-test-with-temp-elisp
+      ";;; sample.el --- Sample -*- lexical-binding: t; -*-\n\n(defun sample-public ()\n  \"Return non-nil.\"\n  t)\n"
+    (let (mode-hooks-delayed)
+      (cl-letf (((symbol-function 'run-mode-hooks)
+                 (lambda (&rest _hooks)
+                   (setq mode-hooks-delayed
+                         (bound-and-true-p delay-mode-hooks)))))
+        (let* ((report (elisp-quality-ai-analyze-file file))
+               (definitions (cdr (assoc "definitions" report))))
+          (should mode-hooks-delayed)
+          (should (= 1 (length definitions))))))))
+
 (ert-deftest elisp-quality-ai-report-encodes-json ()
   (elisp-quality-ai-test-with-temp-elisp
       ";;; sample.el --- Sample -*- lexical-binding: t; -*-\n\n(defun sample-public (x)\n  \"Return X.\"\n  x)\n"

@@ -213,7 +213,8 @@ parsed or applied safely."
       ;; can turn them into a normal diagnostic below.
       (let ((enable-local-variables nil)
             (enable-local-eval nil))
-        (emacs-lisp-mode)))
+        (delay-mode-hooks
+          (emacs-lisp-mode))))
     (let (definitions diagnostics)
       (when-let ((diagnostic
                   (elisp-quality-ai-core--apply-safe-file-local-variables
