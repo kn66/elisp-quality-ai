@@ -22,6 +22,62 @@ small built-in inventory:
 Future collectors can wrap coverage tools and other project-specific checks.
 The current schema is documented in =docs/schema.md=.
 
+* Dependencies
+
+=elisp-quality-ai= requires Emacs 29.1 or newer.  It has no required
+third-party runtime packages; the built-in =checkdoc= and =byte-compile=
+collectors use libraries shipped with Emacs.
+
+Optional external collectors run when their matching package/library or
+executable is available.  Install whichever tools you want included in reports:
+=package-lint=, =relint=, =cognitive-complexity=, and =elsa=.  With
+=package.el=, make sure your package archives include MELPA, then refresh and
+install the packages that are distributed through package archives:
+
+#+begin_src elisp
+(require 'package)
+(add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
+(package-initialize)
+(package-refresh-contents)
+(dolist (package '(package-lint relint elsa))
+  (unless (package-installed-p package)
+    (package-install package)))
+#+end_src
+
+=cognitive-complexity= is installed from its Git repository with Emacs 29's VC
+package support:
+
+#+begin_src elisp
+(require 'package)
+(require 'package-vc)
+(package-initialize)
+(unless (package-installed-p 'cognitive-complexity)
+  (package-vc-install "https://github.com/emacs-vs/cognitive-complexity"))
+#+end_src
+
+The loop above installs the optional collector packages available from package
+archives; remove package names you do not want to use.  The equivalent
+interactive commands are:
+
+#+begin_example
+M-x package-refresh-contents
+M-x package-install RET package-lint RET
+M-x package-install RET relint RET
+M-x package-install RET elsa RET
+M-x package-vc-install RET https://github.com/emacs-vs/cognitive-complexity RET
+#+end_example
+
+For development in this repository, Eask installs the declared development
+dependencies (=package-lint= and =relint=):
+
+#+begin_src sh
+eask install-deps --dev
+#+end_src
+
+If you use straight.el, elpaca, or another package manager, install the same
+package names there and pass its generated package directories to batch runs
+with =--load-path=, or load a small setup file with =--load=.
+
 * Usage
 
 Add the package directory to =load-path=, then require it:
